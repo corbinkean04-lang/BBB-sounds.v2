@@ -188,3 +188,166 @@ class BBBSoundsApp(App, BgMixin):
             size_hint_x=0.3,
             background_color=(0.13, 0.13, 0.13, 1),
             background_normal="",
+            color=WHITE,
+        )
+        stop_btn.bind(on_release=lambda *_: self.stop_all())
+        controls.add_widget(stop_btn)
+        root.add_widget(controls)
+
+        # Grid of sound cards
+        scroll = ScrollView()
+        self.grid = GridLayout(cols=2, spacing=dp(8), padding=dp(8), size_hint_y=None)
+        self.grid.bind(minimum_height=self.grid.setter("height"))
+        scroll.add_widget(self.grid)
+        root.add_widget(scroll)
+
+        self.render()
+        return root
+
+    # ---- Android runtime permissions ----
+    def _request_android_permissions(self):
+        try:
+            from android.permissions import request_permissions, Permission
+            request_permissions(
+                [
+                    Permission.READ_EXTERNAL_STORAGE,
+                    Permission.WRITE_EXTERNAL_STORAGE,
+                ]
+            )
+        except Exception:
+            pass  # not running on Android (e.g. testing on desktop)
+
+    # ---- Library persistence ----
+    def load_library(self):
+        cfg = config_path()
+        if cfg.exists():
+            try:
+                data = json.loads(cfg.read_text(encoding="utf-8"))
+                self.sounds = [s for s in data if Path(s["path"]).exists()]
+            except Exception:
+                self.sounds = []
+
+    def save_library(self):
+        config_path().write_text(json.dumps(self.sounds), encoding="utf-8")
+
+    def render(self):
+        self.grid.clear_widgets()
+        for entry in self.sounds:
+            self.grid.add_widget(SoundCard(self, entry))
+        if not self.sounds:
+            self.grid.add_widget(
+                Label(
+                    text="No sounds yet.\nTap + ADD SOUND to import one.",
+                    color=MUTED,
+                    size_hint_y=None,
+                    height=dp(120),
+                )
+            )
+
+    # ---- Adding sounds ----
+    def open_file_chooser(self, *_):
+        content = BoxLayout(orientation="vertical")
+        chooser = FileChooserListView(
+            path=os.path.expanduser("~"),
+            filters=["*" + e for e in AUDIO_EXTS],
+        )
+        content.add_widget(chooser)
+        btn_row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+        select_btn = Button(text="Add", background_color=RED, background_normal="", color=WHITE)
+        cancel_btn = Button(text="Cancel")
+        btn_row.add_widget(select_btn)
+        btn_row.add_widget(cancel_btn)
+        content.add_widget(btn_row)
+
+        popup = Popup(title="Choose audio files", content=content, size_hint=(0.9, 0.9))
+        cancel_btn.bind(on_release=popup.dismiss)
+
+        def do_select(*_):
+            for src in chooser.selection:
+                self.import_sound(src)
+            popup.dismiss()
+
+        select_btn.bind(on_release=do_select)
+        popup.open()
+
+    def import_sound(self, src_path):
+        src = Path(src_path)
+        if src.suffix.lower() not in AUDIO_EXTS:
+            return
+        dest = sounds_dir() / src.name
+        i = 1
+        while dest.exists():
+            dest = sounds_dir() / f"{src.stem} ({i}){src.suffix}"
+            i += 1
+        try:
+            shutil.copy(str(src), str(dest))
+        except Exception as e:
+            self._show_error(f"Could not import {src.name}\n{e}")
+            return
+        self.sounds.append({"name": dest.stem, "path": str(dest), "loop": False})
+        self.save_library()
+        self.render()
+
+    # ---- Playback ----
+    def play_sound(self, entry):
+        self.stop_sound(entry)
+        snd = SoundLoader.load(entry["path"])
+        if snd is None:
+            self._show_error(f"Could not play {entry['name']}")
+            return
+        snd.volume = self.volume
+        snd.loop = bool(entry.get("loop", False))
+        snd.play()
+        self.playing[entry["name"]] = snd
+
+    def stop_sound(self, entry):
+        snd = self.playing.pop(entry["name"], None)
+        if snd:
+            snd.stop()
+
+    def stop_all(self):
+        for snd in list(self.playing.values()):
+            snd.stop()
+        self.playing.clear()
+
+    def set_loop(self, entry, value):
+        entry["loop"] = bool(value)
+        self.save_library()
+        snd = self.playing.get(entry["name"])
+        if snd:
+            snd.loop = bool(value)
+
+    def remove_sound(self, entry):
+        self.stop_sound(entry)
+        try:
+            os.remove(entry["path"])
+        except Exception:
+            pass
+        self.sounds = [s for s in self.sounds if s is not entry]
+        self.save_library()
+        self.render()
+
+    def on_volume_change(self, slider, value):
+        self.volume = value / 100.0
+        self.vol_label.text = f"{int(value)}%"
+        for snd in self.playing.values():
+            snd.volume = self.volume
+
+    def _show_error(self, msg):
+        Popup(
+            title=APP_NAME,
+            content=Label(text=msg),
+            size_hint=(0.8, 0.4),
+        ).open()
+
+
+if __name__ == "__main__":
+    BBBSoundsApp().run()
+
+
+
+
+
+
+
+
