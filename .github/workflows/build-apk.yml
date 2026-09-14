@@ -35,7 +35,7 @@ jobs:
       - name: Install Buildozer and Cython
         run: |
           pip install --upgrade pip
-          pip install buildozer cython==0.29.36
+          pip install buildozer cython==0.29.36 python-for-android==2024.1.21
 
       - name: Pre-install Android SDK cmdline-tools
         run: |
@@ -93,4 +93,3 @@ jobs:
         with:
           name: full-build-log
           path: buildozer_output.log
-        
