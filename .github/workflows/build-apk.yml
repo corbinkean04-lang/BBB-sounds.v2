@@ -38,11 +38,39 @@ jobs:
           pip install buildozer cython==0.29.36
 
       - name: Build APK with Buildozer
+        id: build
+        continue-on-error: true
         run: |
-          yes | buildozer android debug
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee buildozer_output.log
+
+      - name: Show error summary
+        if: always()
+        run: |
+          echo "======================================"
+          echo "LAST 60 LINES OF LOG:"
+          echo "======================================"
+          tail -60 buildozer_output.log
+          echo "======================================"
+          echo "LINES LOOKING LIKE REAL ERRORS:"
+          echo "======================================"
+          grep -n -E "error:|Error:|FAILED|fatal error|undefined reference|No such file|ImportError|ModuleNotFoundError|CalledProcessError" buildozer_output.log | grep -v -- "-Werror" | tail -60 || echo "(no matches found)"
+
+      - name: Fail job if build failed
+        if: steps.build.outcome == 'failure'
+        run: exit 1
 
       - name: Upload APK artifact
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: bbb-sounds-apk
           path: bin/*.apk
+
+      - name: Upload full log as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-build-log
+          path: buildozer_output.log
+        
