@@ -6,7 +6,7 @@ packaged into an .apk with buildozer.
 Notes on what changed vs. the PC version:
 - tkinter -> Kivy (tkinter/winsound don't exist on Android)
 - winsound playback -> kivy.core.audio.SoundLoader (cross platform)
-- Windows file dialog -> Kivy popup + Android storage permission request
+- Windows file dialog -> Android native file picker via plyer
 - The "send audio into your game's microphone" feature relied on a Windows
   virtual audio cable driver and is not available on stock Android, so it
   has been removed. Sounds play locally on the device.
@@ -25,7 +25,6 @@ from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.checkbox import CheckBox
-from kivy.uix.filechooser import FileChooserListView
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
@@ -246,29 +245,23 @@ class BBBSoundsApp(App, BgMixin):
 
     # ---- Adding sounds ----
     def open_file_chooser(self, *_):
-        content = BoxLayout(orientation="vertical")
-        chooser = FileChooserListView(
-            path=os.path.expanduser("~"),
-            filters=["*" + e for e in AUDIO_EXTS],
-        )
-        content.add_widget(chooser)
-        btn_row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
-        select_btn = Button(text="Add", background_color=RED, background_normal="", color=WHITE)
-        cancel_btn = Button(text="Cancel")
-        btn_row.add_widget(select_btn)
-        btn_row.add_widget(cancel_btn)
-        content.add_widget(btn_row)
+        # Uses the native Android file picker (via plyer), which handles
+        # modern Android's storage permissions correctly. Falls back to a
+        # desktop file dialog when not running on Android.
+        try:
+            from plyer import filechooser
+            filechooser.open_file(
+                on_selection=self._on_native_file_selection,
+                multiple=True,
+            )
+        except Exception as e:
+            self._show_error(f"Could not open file picker.\n{e}")
 
-        popup = Popup(title="Choose audio files", content=content, size_hint=(0.9, 0.9))
-        cancel_btn.bind(on_release=popup.dismiss)
-
-        def do_select(*_):
-            for src in chooser.selection:
-                self.import_sound(src)
-            popup.dismiss()
-
-        select_btn.bind(on_release=do_select)
-        popup.open()
+    def _on_native_file_selection(self, selection):
+        if not selection:
+            return
+        for src in selection:
+            self.import_sound(src)
 
     def import_sound(self, src_path):
         src = Path(src_path)
